@@ -1,0 +1,9 @@
+[server]
+headless = true
+maxUploadSize = 10   # MB; contracts are small, this limits abuse
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#2f5d8a"

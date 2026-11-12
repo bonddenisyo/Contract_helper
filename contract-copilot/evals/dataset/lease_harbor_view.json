@@ -1,0 +1,18 @@
+{
+  "name": "Residential lease (Harbor View Apartments)",
+  "role": "tenant",
+  "note": "Synthetic contract written for evaluation. Not a real agreement.",
+  "text": "RESIDENTIAL LEASE AGREEMENT\n\nThis Lease is made between Harbor View Property LLC (\"Landlord\") and Jane Doe (\"Tenant\"), email jane.doe@example.com, phone +1 415 555 0142.\n\n1. Premises. Landlord leases to Tenant the apartment at 12 Harbor View Road, Unit 4B, together with one parking space.\n\n2. Term. The initial term is twelve (12) months starting on March 1. This Lease shall automatically renew for successive twelve-month terms unless Tenant gives written notice of non-renewal no later than ninety (90) days before the end of the current term.\n\n3. Rent. Monthly rent is $2,100, due on the first day of each month. Landlord may increase the rent at any time upon thirty (30) days written notice.\n\n4. Late Payment. If rent is not received by the 5th of the month, Tenant shall pay a late fee of $75 plus $25 for each additional day the rent remains unpaid.\n\n5. Security Deposit. Tenant shall pay a security deposit of $4,200. Landlord may retain the entire security deposit if Tenant breaches any provision of this Lease, however minor.\n\n6. Early Termination. If Tenant ends this Lease before the end of the term, Tenant shall pay an early termination fee equal to three months' rent in addition to the remaining rent through the end of the term.\n\n7. Entry. Landlord and its agents may enter the premises at any time without prior notice for inspection, repairs, or showing the unit to prospective tenants.\n\n8. Maintenance. Landlord shall keep the building's structure, roof, plumbing, heating and electrical systems in good working order. Tenant shall keep the unit clean and promptly report any damage.\n\n9. Indemnification. Tenant shall indemnify and hold harmless Landlord from any and all claims, losses, and expenses, including attorney fees, arising from the use of the premises, including claims caused by Landlord's own negligence.\n\n10. Pets. No pets are allowed without Landlord's written consent, which shall not be unreasonably withheld.\n\n11. Changes to Rules. Landlord may amend this Lease at any time by posting updated building rules in the lobby, and such changes bind Tenant immediately.\n\n12. Disputes. Any dispute arising under this Lease shall be resolved by binding arbitration, and Tenant waives any right to a jury trial or to participate in a class action.\n\n13. Notices. Notices must be in writing and delivered by hand or by email to the addresses above.\n\n14. Entire Agreement. This Lease is the entire agreement between the parties.",
+  "expected": [
+    {"clause_contains": "automatically renew", "category": "auto_renewal"},
+    {"clause_contains": "increase the rent at any time", "category": "rent_increase"},
+    {"clause_contains": "late fee of $75", "category": "payment_terms"},
+    {"clause_contains": "retain the entire security deposit", "category": "deposit"},
+    {"clause_contains": "early termination fee", "category": "early_termination_penalty"},
+    {"clause_contains": "enter the premises at any time", "category": "entry_access"},
+    {"clause_contains": "Landlord's own negligence", "category": "indemnification", "high_stakes": true},
+    {"clause_contains": "amend this Lease at any time", "category": "unilateral_changes"},
+    {"clause_contains": "binding arbitration", "category": "dispute_resolution", "high_stakes": true}
+  ],
+  "benign": ["Premises.", "Maintenance.", "Pets.", "Notices.", "Entire Agreement."]
+}
