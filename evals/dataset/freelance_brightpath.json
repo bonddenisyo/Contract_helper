@@ -1,0 +1,16 @@
+{
+  "name": "Freelance design services agreement (BrightPath Media)",
+  "role": "freelancer",
+  "note": "Synthetic contract written for evaluation. Not a real agreement.",
+  "text": "INDEPENDENT CONTRACTOR AGREEMENT\n\nThis Agreement is between BrightPath Media Inc. (\"Client\") and Alex Rivera (\"Contractor\"), alex.rivera@example.com.\n\n1. Services. Contractor will design a brand identity package, including a logo, color palette and style guide, as described in Statement of Work #1.\n\n2. Fees. Client will pay a fixed fee of $6,000. Invoices are payable net 90 from the date Client approves the deliverables. Client may, in its sole discretion to withhold payment, delay any invoice until it is satisfied with the work.\n\n3. Revisions. The fee includes two rounds of revisions. Additional revisions are billed at $80 per hour.\n\n4. Intellectual Property. Contractor hereby assigns to Client all right, title and interest in all intellectual property created, developed or conceived by Contractor during the term of this Agreement, whether or not related to the Services.\n\n5. Non-Competition. For a period of two (2) years after this Agreement ends, Contractor shall not provide services to any company in the media, marketing or advertising industry anywhere in the world.\n\n6. Confidentiality. Contractor shall keep Client's confidential information secret. This obligation shall survive indefinitely.\n\n7. Liability. Contractor shall be liable for any and all losses, damages and costs suffered by Client in connection with the Services, without limitation as to amount.\n\n8. Termination. Client may terminate this Agreement for any reason or no reason upon written notice, and shall owe no fees for work not yet approved.\n\n9. Independent Contractor. Contractor is an independent contractor and is responsible for its own taxes, equipment and insurance.\n\n10. Governing Law. This Agreement is governed by the laws of the State of Delaware, and the courts of Delaware have exclusive jurisdiction over any dispute.",
+  "expected": [
+    {"clause_contains": "net 90", "category": "payment_terms"},
+    {"clause_contains": "all intellectual property created", "category": "ip_assignment", "high_stakes": true},
+    {"clause_contains": "Non-Competition", "category": "non_compete", "high_stakes": true},
+    {"clause_contains": "survive indefinitely", "category": "confidentiality"},
+    {"clause_contains": "without limitation as to amount", "category": "uncapped_liability", "high_stakes": true},
+    {"clause_contains": "for any reason or no reason", "category": "termination"},
+    {"clause_contains": "exclusive jurisdiction", "category": "dispute_resolution"}
+  ],
+  "benign": ["Services.", "Revisions.", "Independent Contractor."]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Accounting software subscription (CloudLedger)",
+  "role": "small_business",
+  "note": "Synthetic contract written for evaluation. Not a real agreement. Includes a fair contract section to test false alarms.",
+  "text": "CLOUDLEDGER SUBSCRIPTION AGREEMENT\n\n1. Subscription. CloudLedger Ltd. (\"Provider\") grants Customer access to its online accounting software for the number of users listed in the Order Form.\n\n2. Term and Renewal. The subscription begins on the start date in the Order Form and lasts one year. It renews for additional one-year periods unless either party cancels at least thirty (30) days before renewal. Provider will email Customer a reminder sixty (60) days before each renewal.\n\n3. Fees. Fees are listed in the Order Form and are payable annually in advance. Provider may change fees only at renewal and must give at least sixty (60) days notice of any change.\n\n4. Customer Data. Customer owns all data it uploads. Provider will use Customer data only to provide the service and will let Customer export its data at any time and for thirty (30) days after the subscription ends.\n\n5. Availability. Provider aims for 99.9% monthly availability. If availability falls below this level, Customer receives a service credit of 10% of the monthly fee.\n\n6. Limitation of Liability. Each party's total liability under this Agreement is limited to the fees paid by Customer in the twelve (12) months before the claim, except for breaches of confidentiality.\n\n7. Personal Guarantee. The individual signing this Agreement on behalf of Customer personally guarantees payment of all fees owed by Customer.\n\n8. Termination for Cause. Either party may terminate this Agreement if the other party materially breaches it and fails to cure the breach within thirty (30) days of written notice.\n\n9. Confidentiality. Each party will protect the other's confidential information with reasonable care for three (3) years after the Agreement ends.\n\n10. Governing Law. This Agreement is governed by the laws of the country where Customer is registered.",
+  "expected": [
+    {"clause_contains": "personally guarantees payment", "category": "personal_guarantee", "high_stakes": true}
+  ],
+  "optional": [
+    {"clause_contains": "renews for additional one-year periods", "category": "auto_renewal", "note": "Fair version: mutual, 30-day window, 60-day reminder. Flagging as low risk is fine; high risk is a false alarm."}
+  ],
+  "benign": ["Subscription.", "Fees.", "Customer Data.", "Availability.", "Limitation of Liability.", "Termination for Cause.", "Confidentiality.", "Governing Law."]
+}
