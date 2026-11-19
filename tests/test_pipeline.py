@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -140,7 +141,7 @@ def test_unreadable_answer_is_retried_once():
     good = json.dumps({"summary": "A lease.", "flags": []})
     p = SeqProvider(["We need to look at the clauses. The tenant", good] * 10)
     review = analyze(LEASE["text"], role="tenant", providers=[p])
-    assert not review.warnings and review.summary.startswith("A lease")
+    assert not review.warnings and review.summary
 
 
 def test_all_answers_unreadable_gives_one_clear_warning():
@@ -197,3 +198,36 @@ def test_slow_parts_are_cut_off_by_the_time_limit(monkeypatch):
     assert any("took too long" in w for w in review.warnings)
     assert any("C1" in w for w in review.warnings)
     assert seen[0][0] == 0 and seen[-1][0] >= 1, "progress is reported"
+
+
+def test_overview_is_one_short_text_not_glued_part_summaries():
+    from copilot import analyze as A
+    long_part = json.dumps({"summary": "Part risk. " * 3, "flags": []})
+
+    class P(FakeProvider):
+        def chat(self, system, user, **kw):
+            if "overview" in system:
+                return json.dumps({"overview": " ".join(f"Sentence {i}." for i in range(1, 15))})
+            return long_part
+
+    old = A.MAX_CHARS_PER_CALL
+    A.MAX_CHARS_PER_CALL = 300
+    try:
+        review = A.analyze(LEASE["text"], role="tenant", providers=[P("")])
+    finally:
+        A.MAX_CHARS_PER_CALL = old
+    assert review.summary.startswith("Sentence 1.") and review.summary.endswith("Sentence 8.")
+    assert "Part risk" not in review.summary
+
+
+def test_overview_falls_back_without_ai():
+    from copilot import analyze as A
+
+    class P(FakeProvider):
+        def chat(self, system, user, **kw):
+            if "overview" in system:
+                raise llm.ProviderError("down")
+            return json.dumps({"summary": "x", "flags": []})
+
+    review = A.analyze(LEASE["text"], role="tenant", providers=[P("")])
+    assert review.summary.startswith("We found") and len(re.split(r"(?<=[.])\s+", review.summary)) <= 4

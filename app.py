@@ -175,11 +175,11 @@ if submitted:
         bar = st.progress(0.0, text="Reviewing the contract…")
 
         def show_progress(done: int, total: int) -> None:
-            label = (f"Reviewing the contract… part {min(done + 1, total)} of {total}" if done < total
-                     else "Checking the results…")
+            label = (f"Reviewing the contract… {done} of {total} parts done" if done < total
+                     else "Writing the overview…")
             bar.progress(done / total if total else 1.0, text=label)
 
-        with st.spinner("This usually takes under a minute, and never more than about 3."):
+        with st.spinner("This usually takes 1–2 minutes. Very long contracts can take up to 4."):
             try:
                 review = analyze(text, role=role, progress=show_progress)
             except (ProviderError, ValueError) as e:

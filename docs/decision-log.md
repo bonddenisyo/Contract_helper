@@ -70,3 +70,10 @@ The keyword rules were tuned on the three synthetic contracts in `evals/dataset`
 **What happened:** On the first real lease, every part of the contract returned "No JSON object in model output." Cloudflare gives gpt-oss-120b a default answer budget of 256 tokens, and as a reasoning model it spent all of it thinking, so it never wrote the answer. The review silently fell back to keyword rules, and high-stakes clauses found by those rules were routed to "your decision" instead of the lawyer list.
 **Decision:** Always set a real answer budget (8,000 tokens) and low reasoning effort; use smaller contract parts; retry an unreadable answer once; show one plain warning saying which clauses the AI couldn't read; when the AI fails on a clause, high-stakes rule matches go to the lawyer list. Server logs now record answer sizes and finish reasons (never text) so this kind of failure can be diagnosed.
 **Lesson:** The synthetic evals never ran against the real provider, so they couldn't catch this. Running evals on the live model is now a release requirement, not a nice-to-have.
+
+---
+
+### D12 · One short overview, and room for very long leases (2026-11-19)
+**What happened:** The first full review of a real lease (230 clauses, with addenda) worked, but the overview was about 17 paragraphs, one per contract part glued together, and the last 28 clauses timed out.
+**Decision:** Each part now returns one sentence; a final short call turns those notes and the riskiest flags into a single 4–6 sentence overview, hard-capped at 8. If that call fails, a plain overview is built from the flags without AI. Six parts now run at once, and reading all parts gets up to 3 minutes before the remaining clauses fall back to the safety rules.
+**Trade-off:** One extra AI call per review. Very long contracts still take a few minutes on the free tier; a faster non-reasoning model is the next lever if users find the wait too long.

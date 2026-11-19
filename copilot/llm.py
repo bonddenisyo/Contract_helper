@@ -143,11 +143,11 @@ def available_providers() -> list[Provider]:
     return [candidates[n] for n in order if candidates.get(n)]
 
 
-def chat_with_fallback(system: str, user: str, providers: list[Provider]) -> tuple[str, Provider]:
+def chat_with_fallback(system: str, user: str, providers: list[Provider], **kw) -> tuple[str, Provider]:
     errors = []
     for p in providers:
         try:
-            return p.chat(system, user), p
+            return p.chat(system, user, **kw), p
         except ProviderError as e:
             errors.append(str(e))
     raise ProviderError("All providers failed:\n" + "\n".join(errors))

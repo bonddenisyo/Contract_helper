@@ -18,8 +18,9 @@ from .rules import rule_hits
 from .taxonomy import CATEGORIES, HIGH_STAKES, ROLES
 
 log = logging.getLogger("copilot.analyze")
-REVIEW_TIME_LIMIT = float(os.environ.get("REVIEW_TIME_LIMIT", "150"))  # seconds for the whole review
-PARALLEL_CALLS = int(os.environ.get("PARALLEL_CALLS", "4"))
+REVIEW_TIME_LIMIT = float(os.environ.get("REVIEW_TIME_LIMIT", "180"))  # seconds for reading all parts
+PARALLEL_CALLS = int(os.environ.get("PARALLEL_CALLS", "6"))
+OVERVIEW_TIMEOUT = 45  # seconds for the final overview call
 MAX_CHARS_PER_CALL = 12000  # smaller parts keep each answer well inside the output budget
 RISKS = ("low", "medium", "high")
 
@@ -36,7 +37,16 @@ Rules:
 
 Reply with JSON only:
 {{"flags":[{{"clause_id":"C3","category":"auto_renewal","risk":"low|medium|high","confidence":0.85,"quote":"...","explanation":"...","suggestion":"..."}}],
- "summary":"2-3 sentence plain-language overview of the contract and its biggest risks"}}"""
+ "summary":"ONE sentence on the biggest risk in this part, or empty if none"}}"""
+
+OVERVIEW_PROMPT = """You write the overview shown at the top of a contract review for {role}. You are not a lawyer.
+Below are notes on each part of the contract and the riskiest clauses found.
+Write ONE overview of 4 to 6 short sentences in plain, calm language:
+1) what kind of contract this is, 2) the 2-4 biggest risks, most serious first, 3) one sentence on what to do next.
+Do not list every issue. No headings, no bullet points.
+Reply with JSON only: {{"overview":"..."}}"""
+
+MAX_OVERVIEW_SENTENCES = 8
 
 
 @dataclass
@@ -137,6 +147,49 @@ def _demo_flags(clauses: list[Clause], hits: list[dict]) -> tuple[list[dict], st
     return flags, summary
 
 
+def _limit_sentences(text: str, n: int = MAX_OVERVIEW_SENTENCES) -> str:
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    return " ".join(parts[:n])
+
+
+def _fallback_overview(flags: list[dict]) -> str:
+    """Built without AI, from the flags, if the overview call fails."""
+    if not flags:
+        return "No risky clauses were found. That doesn't mean the contract is safe; read it carefully before signing."
+    lawyer = sum(f["route"] == "lawyer" for f in flags)
+    review = sum(f["route"] == "review" for f in flags)
+    top, seen = [], set()
+    for f in flags:  # flags are already sorted most serious first
+        if f["risk"] == "high" and f["category"] not in seen and f["category"] != "other":
+            seen.add(f["category"])
+            top.append(CATEGORIES[f["category"]].lower())
+        if len(top) == 3:
+            break
+    out = f"We found {len(flags)} clauses worth a look: {lawyer} to discuss with a lawyer and {review} for you to decide on."
+    if top:
+        out += " The most serious: " + "; ".join(top) + "."
+    return out + " Start with the clauses marked \"Ask a lawyer\"."
+
+
+def _overview(summaries: list[str], flags: list[dict], role: str, providers: list[Provider]) -> str:
+    """One short overview for the whole contract, instead of one paragraph per part."""
+    if not providers:
+        return _fallback_overview(flags)
+    top = [f for f in flags if f["risk"] == "high"][:12] or flags[:12]
+    notes = "\n".join(f"- {s}" for s in summaries if s.strip())
+    risky = "\n".join(f"- {f['category']} ({f['risk']}): {f['explanation'][:200]}" for f in top)
+    user = f"Notes on each part:\n{notes or '- (none)'}\n\nRiskiest clauses:\n{risky or '- (none)'}"
+    try:
+        raw, _ = chat_with_fallback(OVERVIEW_PROMPT.format(role=ROLES.get(role, role)), user, providers,
+                                    timeout=OVERVIEW_TIMEOUT, retries=0)
+        text = str(parse_json(raw).get("overview", "")).strip()
+        if text:
+            return _limit_sentences(text)
+    except (ProviderError, ValueError) as e:
+        log.info("overview failed: %s", str(e)[:200])
+    return _fallback_overview(flags)
+
+
 def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = None,
             providers: list[Provider] | None = None, demo: bool | None = None,
             progress=None) -> Review:
@@ -216,7 +269,9 @@ def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = Non
             warnings.append(f"The AI couldn't analyze {len(failed)} of {len(clauses)} clauses "
                             f"({', '.join(failed[:8])}{'…' if len(failed) > 8 else ''}). "
                             "Those were checked by the keyword safety rules only.")
-        summary = " ".join(summaries) or "The AI did not return an overview for this contract."
+        if progress:
+            progress(len(chunks), len(chunks))
+        summary = None  # written after routing, from the final flags
         p0 = used or providers[0]
         prov_name, model, privacy = p0.name, p0.model, p0.privacy_note
 
@@ -251,5 +306,8 @@ def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = Non
     for i, f in enumerate(flags):
         f["id"] = f"F{i + 1}"
         f["route"], f["route_reason"] = route(f)
+
+    if summary is None:
+        summary = _overview(summaries, flags, role, providers)
 
     return Review(clauses, red, flags, summary, prov_name, model, privacy, warnings)
