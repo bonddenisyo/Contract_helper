@@ -23,6 +23,16 @@ def test_redact_masks_personal_data_but_keeps_money():
     assert r.restore(r.text).endswith("Pay to Jane Doe.")
 
 
+def test_parties_and_addresses_found_automatically():
+    r = redact(LEASE["text"])
+    assert set(r.hidden["NAME"]) == {"Harbor View Property LLC", "Jane Doe"}
+    assert r.hidden["ADDRESS"] == ["12 Harbor View Road, Unit 4B"]
+    assert r.hidden["PHONE"] == ["+1 415 555 0142"], "phone must not swallow the next clause number"
+    assert "Jane Doe" not in r.text and "Landlord" in r.text and "$2,100" in r.text
+    from copilot.redact import find_parties
+    assert find_parties('This Agreement (the "Agreement") is made by Ayşe Kaya ("Tenant").') == ["Ayşe Kaya"]
+
+
 def test_clauses_split_on_numbering():
     cs = split_clauses(LEASE["text"])
     assert len(cs) >= 14
@@ -56,7 +66,7 @@ def test_demo_pipeline_end_to_end(tmp_path):
     con = connect(tmp_path / "a.db")
     rid = save_review(con, review, "lease.txt", "tenant")
     first = review.by_route("review")[0]
-    record_decision(con, rid, first["id"], "concern", "Can this be 60 days?")
+    record_decision(con, rid, first["id"], "concern")
     assert decision_stats(con)[first["category"]]["concern"] == 1
 
     md = lawyer_summary(review, {first["id"]: {"decision": "concern", "note": "Can this be 60 days?"}}, "lease.txt", "tenant")
@@ -98,3 +108,14 @@ def test_fallback_skips_failing_provider():
 
     text, used = llm.chat_with_fallback("s", "u", [Broken("x"), FakeProvider('{"flags": []}')])
     assert used.name == "fake" and text == '{"flags": []}'
+
+
+def test_audit_log_stores_no_contract_text(tmp_path):
+    review = analyze(LEASE["text"], role="tenant", demo=True)
+    con = connect(tmp_path / "b.db")
+    rid = save_review(con, review, "lease.txt", "tenant")
+    record_decision(con, rid, review.flags[0]["id"], "concern")
+    dump = "\n".join(con.iterdump())
+    for f in review.flags:
+        assert f["quote"][:30] not in dump
+    assert "automatically renew" not in dump and "Jane Doe" not in dump

@@ -47,9 +47,9 @@ This is the core design decision. It lives in code in `copilot/policy.py` and `c
 
 - Every flag quotes the contract, and the quote is checked against the clause. Unverified quotes are labelled and demoted.
 - Every flag says *why* it was routed where it was.
-- Personal data is masked before leaving the machine; the user can add names to hide.
+- Personal data (party names, emails, phones, addresses, bank and ID numbers) is masked automatically before leaving the app, and the user sees exactly what was hidden.
 - The provider and its data policy are shown before analysis.
-- The audit log stores flags and decisions, never the contract text.
+- The contract is never saved; the audit log keeps only anonymous statistics (categories, routes, decisions). A plain-language privacy notice is shown before upload.
 - No "safe" verdict, ever.
 
 ## Success metrics

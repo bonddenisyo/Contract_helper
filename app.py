@@ -61,7 +61,7 @@ with st.sidebar:
     else:
         st.warning("Demo mode: no AI key found. Keyword rules only. See README to add a free key.")
     page = st.radio("Page", ["Review a contract", "Audit log"], label_visibility="collapsed")
-    st.caption("Built as a portfolio project. Your contract text is not stored.")
+    st.caption("Built as a portfolio project. Your contract is never saved.")
 
 # ---------- Audit log (admin only on a public deployment) ----------
 if page == "Audit log":
@@ -74,7 +74,7 @@ if page == "Audit log":
         elif pw:
             st.error("Wrong password.")
         st.stop()
-    st.caption("What the copilot flagged, how it routed each flag, and what people decided. Contract text is never stored.")
+    st.caption("Anonymous statistics only: what kinds of clauses were flagged, where they were routed, and what people decided. No contract text is stored.")
     rows = recent(con)
     if rows:
         st.dataframe(rows, width="stretch")
@@ -93,10 +93,16 @@ if page == "Audit log":
 st.title("Review a contract")
 c1, c2 = st.columns([3, 2])
 with c1:
-    source = st.radio("Contract", ["Use a sample", "Upload a file", "Paste text"], horizontal=True)
+    source = st.radio("Contract", ["Upload a file", "Paste text", "Try an example"], horizontal=True)
     doc_name, text = "", ""
-    if source == "Use a sample":
-        doc_name = st.selectbox("Sample (synthetic, for trying the tool)", list(SAMPLES))
+    if source == "Try an example":
+        doc_name = st.selectbox(
+            "Example contract", list(SAMPLES),
+            help="Made-up contracts with typical risky clauses, so you can see how the review works "
+                 "without uploading your own. They are also the test set used to measure the tool's accuracy.")
+        st.caption("A made-up contract for trying the tool. No real people or companies.")
+        with st.expander("Read the example contract"):
+            st.text(SAMPLES[doc_name]["text"])
         text = SAMPLES[doc_name]["text"]
     elif source == "Upload a file":
         up = st.file_uploader("PDF, DOCX or TXT", type=["pdf", "docx", "txt"])
@@ -109,19 +115,21 @@ with c1:
         text = st.text_area("Paste the contract", height=200)
         doc_name = "Pasted contract"
 with c2:
-    default_role = SAMPLES[doc_name]["role"] if source == "Use a sample" else "tenant"
+    default_role = SAMPLES[doc_name]["role"] if source == "Try an example" else "tenant"
     role = st.selectbox("I am…", list(ROLES), index=list(ROLES).index(default_role), format_func=lambda r: ROLES[r])
-    hide = st.text_input("Names or addresses to hide before analysis (comma-separated)",
-                         help="Emails, phone numbers, IBANs and ID numbers are hidden automatically.")
-    if providers:
-        st.info(providers[0].privacy_note, icon="🔒")
+    st.info(
+        "**Your contract stays private.**\n\n"
+        "- We remove names, addresses, emails, phone numbers and bank or ID numbers before the text is analyzed.\n"
+        "- Your contract is never saved. It's only kept while this page is open, and it's gone when you close it.\n"
+        "- We keep only anonymous statistics, like how many risky clauses were found.",
+        icon="🔒")
 
-is_sample = source == "Use a sample"
+is_sample = source == "Try an example"
 consent = True
 if providers and not is_sample:
     consent = st.checkbox(
-        f"I understand this is not legal advice, and that the contract text (with personal data hidden) "
-        f"is sent to an AI provider ({providers[0].name}) for analysis.")
+        f"I understand this is not legal advice, and that the contract, with personal details removed, "
+        f"is sent to an AI service ({providers[0].name}) for analysis.")
 
 limit_msg = ""
 if providers and ss.reviews_run >= SESSION_LIMIT:
@@ -135,7 +143,7 @@ if st.button("Review contract", type="primary", disabled=not text.strip() or not
     ss.reviews_run += 1
     with st.spinner("Reading the contract…"):
         try:
-            review = analyze(text, role=role, extra_terms=[t for t in hide.split(",") if t.strip()])
+            review = analyze(text, role=role)
         except (ProviderError, ValueError) as e:
             st.error(f"Review failed: {e}")
             st.stop()
@@ -157,8 +165,7 @@ m[1].metric("🔴 Ask a lawyer", len(review.by_route("lawyer")))
 m[2].metric("🟡 Your decision", len(review.by_route("review")))
 m[3].metric("🟢 Good to know", len(review.by_route("info")))
 st.markdown(f"**Overview:** {restore(review.summary)}")
-st.caption(f"Analyzed by {review.provider} ({review.model}). Personal data hidden before analysis: "
-           f"{review.redaction.counts or 'none found'}.")
+st.caption(f"Analyzed by {review.provider} ({review.model}).")
 for w in review.warnings:
     st.warning(w)
 
@@ -167,7 +174,7 @@ clause_text = {c.id: restore(c.text) for c in review.clauses}
 
 def decide(fid: str, decision: str, note: str) -> None:
     ss.decisions[fid] = {"decision": decision, "note": note}
-    record_decision(con, ss.review_id, fid, decision, note)
+    record_decision(con, ss.review_id, fid, decision)
 
 
 tabs = st.tabs([f"{ROUTE_BADGE[r]} ({len(review.by_route(r))})" for r in ("lawyer", "review", "info")] + ["Full contract"])

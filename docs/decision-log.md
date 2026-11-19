@@ -49,3 +49,17 @@ The keyword rules were tuned on the three synthetic contracts in `evals/dataset`
 **Context:** Users shouldn't have to install anything. A public site also means strangers can use the AI key and see shared data.
 **Decision:** Deploy the same app as a Docker container on Northflank. Add guardrails for a public site: a consent checkbox before any real contract is sent to an AI provider; per-visit and daily review limits to stay inside free-tier quotas; the audit log behind an admin password; the log keeps only the kind of document ("Uploaded .pdf"), never the file name.
 **Trade-off:** Limits can block a genuine user on a busy day, and the audit log resets on redeploy. Both are acceptable for a test with 10–20 users.
+
+---
+
+### D9 · Detect party names automatically; drop the "names to hide" field (2026-11-19)
+**Context:** D5 asked users to type the names to hide. In practice almost nobody fills in an optional privacy field, so names went to the AI provider anyway.
+**Decision:** Find party names from the contract's own definitions (e.g. Jane Doe ("Tenant")) and street addresses automatically. After the review, show the user exactly what was hidden. Fixed two masking bugs found while testing: phone numbers swallowing the next clause number, and emails keeping a trailing full stop.
+**Trade-off:** Names that appear without a party definition (a witness, a guarantor's signature line) can be missed. Showing the hidden list makes that visible instead of silently assumed. Next: measure detection on real contracts.
+
+---
+
+### D10 · Say plainly that contracts are never saved, and make it true (2026-11-19)
+**Context:** Listing the hidden names back to the user (D9) added a screen nobody needs. What users need is a clear promise, shown before they upload.
+**Decision:** Removed the "hidden before analysis" section; masking still runs silently. Added a privacy notice next to the upload: personal details are removed before analysis, the contract is never saved, and only anonymous statistics are kept. To make that true, the audit log no longer stores clause quotes or users' notes, only categories, routes and decisions. A test checks that no contract text reaches the database.
+**Trade-off:** The audit log can no longer show which wording was flagged, so tuning rules needs the eval set rather than real user data. Keep the fallback providers in line with the promise: any provider that may train on inputs (such as Gemini's free tier) should not be configured on the public site.

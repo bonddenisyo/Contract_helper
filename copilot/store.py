@@ -1,4 +1,5 @@
-"""Audit log in SQLite. Stores flags and human decisions, never the full contract text."""
+"""Audit log in SQLite. Stores only anonymous statistics: categories, routes and decisions.
+No contract text, quotes or user notes are ever written here."""
 from __future__ import annotations
 
 import json
@@ -14,9 +15,9 @@ CREATE TABLE IF NOT EXISTS reviews (
   provider TEXT, model TEXT, n_clauses INTEGER, n_flags INTEGER, routes TEXT);
 CREATE TABLE IF NOT EXISTS flags (
   review_id INTEGER, flag_id TEXT, clause_id TEXT, category TEXT, risk TEXT,
-  confidence REAL, source TEXT, verified INTEGER, route TEXT, route_reason TEXT, quote TEXT);
+  confidence REAL, source TEXT, verified INTEGER, route TEXT, route_reason TEXT);
 CREATE TABLE IF NOT EXISTS decisions (
-  review_id INTEGER, flag_id TEXT, decision TEXT, note TEXT, decided_at TEXT);
+  review_id INTEGER, flag_id TEXT, decision TEXT, decided_at TEXT);
 """
 
 
@@ -40,16 +41,17 @@ def save_review(con, review, doc_name: str, role: str) -> int:
     )
     rid = cur.lastrowid
     con.executemany(
-        "INSERT INTO flags VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO flags VALUES (?,?,?,?,?,?,?,?,?,?)",
         [(rid, f["id"], f["clause_id"], f["category"], f["risk"], f["confidence"], f["source"],
-          int(f["verified"]), f["route"], f["route_reason"], f["quote"]) for f in review.flags],
+          int(f["verified"]), f["route"], f["route_reason"]) for f in review.flags],
     )
     con.commit()
     return rid
 
 
-def record_decision(con, review_id: int, flag_id: str, decision: str, note: str = "") -> None:
-    con.execute("INSERT INTO decisions VALUES (?,?,?,?,?)", (review_id, flag_id, decision, note, _now()))
+def record_decision(con, review_id: int, flag_id: str, decision: str) -> None:
+    """The user's note stays in their session (for the lawyer handoff) and is never stored."""
+    con.execute("INSERT INTO decisions VALUES (?,?,?,?)", (review_id, flag_id, decision, _now()))
     con.commit()
 
 
