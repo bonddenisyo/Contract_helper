@@ -172,12 +172,21 @@ if submitted:
         st.error("Please tick the box confirming you understand this is not legal advice, then press Review again.")
     else:
         ss.reviews_run += 1
-        with st.spinner("Reviewing the contract… this can take up to a minute."):
+        bar = st.progress(0.0, text="Reviewing the contract…")
+
+        def show_progress(done: int, total: int) -> None:
+            label = (f"Reviewing the contract… part {min(done + 1, total)} of {total}" if done < total
+                     else "Checking the results…")
+            bar.progress(done / total if total else 1.0, text=label)
+
+        with st.spinner("This usually takes under a minute, and never more than about 3."):
             try:
-                review = analyze(text, role=role)
+                review = analyze(text, role=role, progress=show_progress)
             except (ProviderError, ValueError) as e:
+                bar.empty()
                 st.error(f"Review failed: {e}")
                 st.stop()
+        bar.empty()
         ss.review, ss.decisions, ss.doc_name, ss.role = review, {}, doc_name, role
         # File names can contain people's names, so the audit log only keeps the kind of document.
         log_name = (f"Sample: {doc_name}" if is_sample

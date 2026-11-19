@@ -176,3 +176,24 @@ def test_cloudflare_request_sets_budget_and_handles_cutoff(monkeypatch):
         assert "cut off" in str(e)
     assert sent[0]["max_tokens"] >= 4000 and sent[0]["reasoning_effort"] == "low"
     assert "reasoning_effort" not in sent[1], "retry without the option if the provider rejects it"
+
+
+def test_slow_parts_are_cut_off_by_the_time_limit(monkeypatch):
+    import time as _t
+    from copilot import analyze as A
+
+    class Slow(FakeProvider):
+        def chat(self, system, user, **kw):
+            if "[C1]" in user:
+                _t.sleep(3)  # one stuck part
+            return json.dumps({"summary": "ok", "flags": []})
+
+    monkeypatch.setattr(A, "MAX_CHARS_PER_CALL", 300)
+    monkeypatch.setattr(A, "REVIEW_TIME_LIMIT", 1.0)
+    seen = []
+    t0 = _t.monotonic()
+    review = A.analyze(LEASE["text"], role="tenant", providers=[Slow("")], progress=lambda d, t: seen.append((d, t)))
+    assert _t.monotonic() - t0 < 2.5, "the review must not wait for the stuck part"
+    assert any("took too long" in w for w in review.warnings)
+    assert any("C1" in w for w in review.warnings)
+    assert seen[0][0] == 0 and seen[-1][0] >= 1, "progress is reported"

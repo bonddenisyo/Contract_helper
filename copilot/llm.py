@@ -40,7 +40,7 @@ class Provider:
             return {"reasoning_effort": os.environ.get("REASONING_EFFORT", "low")}
         return {}
 
-    def chat(self, system: str, user: str, timeout: int = 180, retries: int = 2) -> str:
+    def chat(self, system: str, user: str, timeout: int = 90, retries: int = 1) -> str:
         url = self.base_url.rstrip("/") + "/chat/completions"
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -78,7 +78,8 @@ class Provider:
             content = _text_of(choice.get("message", {}).get("content"))
             finish = choice.get("finish_reason")
             # Diagnostics only: sizes and status, never the text (contracts must not end up in logs).
-            log.info("%s %s: finish=%s, answer_chars=%d", self.name, self.model, finish, len(content))
+            log.info("%s %s: finish=%s, answer_chars=%d, seconds=%.1f",
+                     self.name, self.model, finish, len(content), r.elapsed.total_seconds() if hasattr(r, "elapsed") else -1)
             if not content.strip():
                 if finish == "length":
                     raise ProviderError(f"{self.name}: the answer was cut off before it started "

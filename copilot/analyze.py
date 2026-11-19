@@ -2,6 +2,11 @@
 from __future__ import annotations
 
 import difflib
+import logging
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 import re
 from dataclasses import dataclass, field
 
@@ -12,6 +17,9 @@ from .redact import Redaction, redact
 from .rules import rule_hits
 from .taxonomy import CATEGORIES, HIGH_STAKES, ROLES
 
+log = logging.getLogger("copilot.analyze")
+REVIEW_TIME_LIMIT = float(os.environ.get("REVIEW_TIME_LIMIT", "150"))  # seconds for the whole review
+PARALLEL_CALLS = int(os.environ.get("PARALLEL_CALLS", "4"))
 MAX_CHARS_PER_CALL = 12000  # smaller parts keep each answer well inside the output budget
 RISKS = ("low", "medium", "high")
 
@@ -130,7 +138,9 @@ def _demo_flags(clauses: list[Clause], hits: list[dict]) -> tuple[list[dict], st
 
 
 def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = None,
-            providers: list[Provider] | None = None, demo: bool | None = None) -> Review:
+            providers: list[Provider] | None = None, demo: bool | None = None,
+            progress=None) -> Review:
+    """progress(done, total) is called as contract parts finish, for a progress bar."""
     red = redact(text, extra_terms)
     clauses = split_clauses(red.text)
     if not clauses:
@@ -150,26 +160,55 @@ def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = Non
     else:
         system = SYSTEM_PROMPT.format(role=ROLES.get(role, role), categories=", ".join(CATEGORIES))
         flags, summaries, used = [], [], None
-        for chunk in _chunks(clauses):
+        chunks = _chunks(clauses)
+        total_chars = sum(len(c.text) for c in clauses)
+        log.info("review: %d clauses, %d chars, %d parts", len(clauses), total_chars, len(chunks))
+
+        def ask(chunk: list[Clause]):
             user = "\n\n".join(f"[{c.id}]\n{c.text}" for c in chunk)
-            data = None
             for attempt in range(2):  # one retry with a firmer instruction
                 prompt = user if attempt == 0 else user + "\n\nReply with the JSON object only. No other text."
                 try:
-                    raw, used = chat_with_fallback(system, prompt, providers)
-                    data = parse_json(raw)
-                    break
-                except (ProviderError, ValueError):
+                    raw, prov = chat_with_fallback(system, prompt, providers)
+                    return parse_json(raw), prov
+                except (ProviderError, ValueError) as e:
+                    log.info("part failed (attempt %d): %s", attempt + 1, str(e)[:200])
+            return None, None
+
+        # Parts run in parallel, and the whole review has a time limit, so a slow or stuck
+        # request can't keep the user waiting for minutes.
+        deadline = time.monotonic() + REVIEW_TIME_LIMIT
+        pool = ThreadPoolExecutor(max_workers=PARALLEL_CALLS)
+        futures = {pool.submit(ask, ch): ch for ch in chunks}
+        done_count = 0
+        if progress:
+            progress(0, len(chunks))
+        try:
+            for fut in as_completed(futures, timeout=max(1.0, deadline - time.monotonic())):
+                data, prov = fut.result()
+                done_count += 1
+                if progress:
+                    progress(done_count, len(chunks))
+                if data is None:
+                    failed.extend(c.id for c in futures[fut])
                     continue
-            if data is None:
-                failed.extend(c.id for c in chunk)
-                continue
-            for f in data.get("flags", []):
-                cf = _clean_flag(f, ids) if isinstance(f, dict) else None
-                if cf:
-                    flags.append(cf)
-            if data.get("summary"):
-                summaries.append(str(data["summary"]))
+                used = used or prov
+                for f in data.get("flags", []):
+                    cf = _clean_flag(f, ids) if isinstance(f, dict) else None
+                    if cf:
+                        flags.append(cf)
+                if data.get("summary"):
+                    summaries.append((chunks.index(futures[fut]), str(data["summary"])))
+        except FuturesTimeout:
+            for fut, ch in futures.items():
+                if not fut.done():
+                    failed.extend(c.id for c in ch)
+            warnings.append("The AI took too long on part of this contract.")
+            log.info("review hit the %ss time limit", REVIEW_TIME_LIMIT)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        failed.sort(key=lambda cid: int(cid[1:]))
+        summaries = [t for _, t in sorted(summaries)]
         if failed and len(failed) == len(clauses):
             warnings.append("The AI couldn't analyze this contract, so the results below come from the "
                             "keyword safety rules only. Please try again in a few minutes.")
