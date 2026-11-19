@@ -121,29 +121,33 @@ elif providers and reviews_today(con) >= DAILY_LIMIT:
 if limit_msg:
     st.warning(limit_msg)
 
-with st.form("review_form", border=False):
-    c1, c2 = st.columns([3, 2])
-    with c1:
-        up, pasted = None, ""
-        if source == "Upload a file":
-            up = st.file_uploader("PDF, DOCX or TXT", type=["pdf", "docx", "txt"])
-        elif source == "Paste text":
-            pasted = st.text_area("Paste the contract", height=200)
-    with c2:
-        default_role = SAMPLES[sample_name]["role"] if is_sample else "tenant"
-        role = st.selectbox("I am…", list(ROLES), index=list(ROLES).index(default_role), format_func=lambda r: ROLES[r])
-        st.info(
-            "**Your contract stays private.**\n\n"
-            "- We remove names, addresses, emails, phone numbers and bank or ID numbers before the text is analyzed.\n"
-            "- Your contract is never saved. It's only kept while this page is open, and it's gone when you close it.\n"
-            "- We keep only anonymous statistics, like how many risky clauses were found.",
-            icon="🔒")
-    consent = True
-    if providers and not is_sample:
-        consent = st.checkbox(
-            f"I understand this is not legal advice, and that the contract, with personal details removed, "
-            f"is sent to an AI service ({providers[0].name}) for analysis.")
-    submitted = st.form_submit_button("Review contract", type="primary", disabled=bool(limit_msg))
+# No form here: ticking the box must refresh the page so the button can light up. That refresh is
+# instant because nothing heavy runs until "Review contract" is pressed (the file is read only then).
+c1, c2 = st.columns([3, 2])
+with c1:
+    up, pasted = None, ""
+    if source == "Upload a file":
+        up = st.file_uploader("PDF, DOCX or TXT", type=["pdf", "docx", "txt"])
+    elif source == "Paste text":
+        pasted = st.text_area("Paste the contract", height=200)
+with c2:
+    default_role = SAMPLES[sample_name]["role"] if is_sample else "tenant"
+    role = st.selectbox("I am…", list(ROLES), index=list(ROLES).index(default_role), format_func=lambda r: ROLES[r])
+    st.info(
+        "**Your contract stays private.**\n\n"
+        "- We remove names, addresses, emails, phone numbers and bank or ID numbers before the text is analyzed.\n"
+        "- Your contract is never saved. It's only kept while this page is open, and it's gone when you close it.\n"
+        "- We keep only anonymous statistics, like how many risky clauses were found.",
+        icon="🔒")
+consent = True
+if providers and not is_sample:
+    consent = st.checkbox(
+        f"I understand this is not legal advice, and that the contract, with personal details removed, "
+        f"is sent to an AI service ({providers[0].name}) for analysis.")
+
+has_document = is_sample or up is not None or bool(pasted.strip())
+submitted = st.button("Review contract", type="primary",
+                      disabled=not has_document or not consent or bool(limit_msg))
 
 if submitted:
     doc_name, text, problem = "", "", ""
