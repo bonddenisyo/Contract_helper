@@ -20,7 +20,7 @@ except ImportError:
     pass
 
 from copilot.analyze import analyze
-from copilot.handoff import lawyer_summary
+from copilot.handoff import lawyer_docx, lawyer_summary
 from copilot.llm import ProviderError, available_providers
 from copilot.parsing import extract_text
 from copilot.store import connect, decision_stats, recent, record_decision, reviews_today, save_review
@@ -268,6 +268,11 @@ st.subheader("Lawyer handoff")
 pending = [f for f in review.flags if f["route"] != "info" and f["id"] not in ss.decisions]
 st.caption(f"{len(pending)} flags still waiting for your decision." if pending else "All flags decided.")
 md = lawyer_summary(review, ss.decisions, ss.doc_name, ss.role)
-st.download_button("Download questions for a lawyer (.md)", md, file_name="lawyer-questions.md")
+st.download_button(
+    "Download questions for a lawyer (Word)",
+    lawyer_docx(review, ss.decisions, ss.doc_name, ss.role),
+    file_name="lawyer-questions.docx",
+    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    type="primary")
 with st.expander("Preview"):
     st.markdown(md)

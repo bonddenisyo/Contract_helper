@@ -74,7 +74,7 @@ copilot/
   analyze.py            the pipeline
   policy.py             routing = the automation boundary
   taxonomy.py           categories, high-stakes list, user roles
-  handoff.py            lawyer question list (no AI)
+  handoff.py            lawyer question list as Word (.docx) and preview (no AI)
   store.py              SQLite audit log (no contract text)
 evals/                  labeled synthetic contracts + scorer
 docs/                   PRD, decision log, roadmap

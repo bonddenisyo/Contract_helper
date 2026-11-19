@@ -231,3 +231,16 @@ def test_overview_falls_back_without_ai():
 
     review = A.analyze(LEASE["text"], role="tenant", providers=[P("")])
     assert review.summary.startswith("We found") and len(re.split(r"(?<=[.])\s+", review.summary)) <= 4
+
+
+def test_lawyer_handoff_docx_has_the_same_content():
+    import io
+    from docx import Document
+    from copilot.handoff import lawyer_docx
+    review = analyze(LEASE["text"], role="tenant", demo=True)
+    f = review.by_route("lawyer")[0]
+    data = lawyer_docx(review, {f["id"]: {"decision": "lawyer_question", "note": "Is this enforceable?"}}, "lease.pdf", "tenant")
+    text = "\n".join(p.text for p in Document(io.BytesIO(data)).paragraphs)
+    assert "Contract questions for a lawyer" in text and "lease.pdf" in text
+    assert "Is this enforceable?" in text and "Lawyer's answer:" in text
+    assert "[NAME_" not in text and "[EMAIL_" not in text, "the user's copy shows real values, not placeholders"
