@@ -63,3 +63,10 @@ The keyword rules were tuned on the three synthetic contracts in `evals/dataset`
 **Context:** Listing the hidden names back to the user (D9) added a screen nobody needs. What users need is a clear promise, shown before they upload.
 **Decision:** Removed the "hidden before analysis" section; masking still runs silently. Added a privacy notice next to the upload: personal details are removed before analysis, the contract is never saved, and only anonymous statistics are kept. To make that true, the audit log no longer stores clause quotes or users' notes, only categories, routes and decisions. A test checks that no contract text reaches the database.
 **Trade-off:** The audit log can no longer show which wording was flagged, so tuning rules needs the eval set rather than real user data. Keep the fallback providers in line with the promise: any provider that may train on inputs (such as Gemini's free tier) should not be configured on the public site.
+
+---
+
+### D11 · The first real lease came back unread by the AI (2026-11-19)
+**What happened:** On the first real lease, every part of the contract returned "No JSON object in model output." Cloudflare gives gpt-oss-120b a default answer budget of 256 tokens, and as a reasoning model it spent all of it thinking, so it never wrote the answer. The review silently fell back to keyword rules, and high-stakes clauses found by those rules were routed to "your decision" instead of the lawyer list.
+**Decision:** Always set a real answer budget (8,000 tokens) and low reasoning effort; use smaller contract parts; retry an unreadable answer once; show one plain warning saying which clauses the AI couldn't read; when the AI fails on a clause, high-stakes rule matches go to the lawyer list. Server logs now record answer sizes and finish reasons (never text) so this kind of failure can be diagnosed.
+**Lesson:** The synthetic evals never ran against the real provider, so they couldn't catch this. Running evals on the live model is now a release requirement, not a nice-to-have.

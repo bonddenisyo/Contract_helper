@@ -119,3 +119,60 @@ def test_audit_log_stores_no_contract_text(tmp_path):
     for f in review.flags:
         assert f["quote"][:30] not in dump
     assert "automatically renew" not in dump and "Jane Doe" not in dump
+
+
+class SeqProvider(llm.Provider):
+    """Returns canned answers in order, to simulate a model misbehaving."""
+    def __init__(self, replies):
+        super().__init__("fake", "", "", "fake-model", "test")
+        self.replies, self.calls = list(replies), 0
+
+    def chat(self, system, user, **kw):
+        self.calls += 1
+        r = self.replies.pop(0) if self.replies else self.last
+        self.last = r
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+def test_unreadable_answer_is_retried_once():
+    good = json.dumps({"summary": "A lease.", "flags": []})
+    p = SeqProvider(["We need to look at the clauses. The tenant", good] * 10)
+    review = analyze(LEASE["text"], role="tenant", providers=[p])
+    assert not review.warnings and review.summary.startswith("A lease")
+
+
+def test_all_answers_unreadable_gives_one_clear_warning():
+    p = SeqProvider([llm.ProviderError("fake: empty answer")])
+    review = analyze(LEASE["text"], role="tenant", providers=[p])
+    assert len(review.warnings) == 1 and "keyword safety rules only" in review.warnings[0]
+    assert review.by_route("lawyer"), "rules must still catch high-stakes clauses"
+
+
+class FakeResp:
+    def __init__(self, status, payload):
+        self.status_code, self._p, self.headers, self.text = status, payload, {}, json.dumps(payload)
+
+    def json(self):
+        return self._p
+
+
+def test_cloudflare_request_sets_budget_and_handles_cutoff(monkeypatch):
+    sent = []
+
+    def post(url, headers, json, timeout):
+        sent.append(dict(json))
+        if len(sent) == 1:
+            return FakeResp(400, {"error": "unknown field reasoning_effort"})
+        return FakeResp(200, {"choices": [{"message": {"content": None}, "finish_reason": "length"}]})
+
+    monkeypatch.setattr(llm.requests, "post", post)
+    p = llm.Provider("cloudflare", "https://x", "k", "@cf/openai/gpt-oss-120b", "")
+    try:
+        p.chat("s", "u")
+        raise AssertionError("expected ProviderError")
+    except llm.ProviderError as e:
+        assert "cut off" in str(e)
+    assert sent[0]["max_tokens"] >= 4000 and sent[0]["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in sent[1], "retry without the option if the provider rejects it"

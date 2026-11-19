@@ -6,13 +6,13 @@ import re
 from dataclasses import dataclass, field
 
 from .clauses import Clause, split_clauses
-from .llm import DEMO, Provider, available_providers, chat_with_fallback, parse_json
+from .llm import DEMO, Provider, ProviderError, available_providers, chat_with_fallback, parse_json
 from .policy import route
 from .redact import Redaction, redact
 from .rules import rule_hits
 from .taxonomy import CATEGORIES, HIGH_STAKES, ROLES
 
-MAX_CHARS_PER_CALL = 20000
+MAX_CHARS_PER_CALL = 12000  # smaller parts keep each answer well inside the output budget
 RISKS = ("low", "medium", "high")
 
 SYSTEM_PROMPT = """You review contracts for {role}. You are not a lawyer and you do not give legal advice.
@@ -138,6 +138,7 @@ def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = Non
     ids = {c.id for c in clauses}
     hits = rule_hits(clauses)
     warnings: list[str] = []
+    failed: list[str] = []
 
     providers = available_providers() if providers is None else providers
     if demo is None:
@@ -151,12 +152,17 @@ def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = Non
         flags, summaries, used = [], [], None
         for chunk in _chunks(clauses):
             user = "\n\n".join(f"[{c.id}]\n{c.text}" for c in chunk)
-            raw, used = chat_with_fallback(system, user, providers)
-            try:
-                data = parse_json(raw)
-            except ValueError as e:
-                warnings.append(f"Could not read the AI's answer for part of the contract ({e}). "
-                                "Those clauses are covered by safety rules only.")
+            data = None
+            for attempt in range(2):  # one retry with a firmer instruction
+                prompt = user if attempt == 0 else user + "\n\nReply with the JSON object only. No other text."
+                try:
+                    raw, used = chat_with_fallback(system, prompt, providers)
+                    data = parse_json(raw)
+                    break
+                except (ProviderError, ValueError):
+                    continue
+            if data is None:
+                failed.extend(c.id for c in chunk)
                 continue
             for f in data.get("flags", []):
                 cf = _clean_flag(f, ids) if isinstance(f, dict) else None
@@ -164,8 +170,16 @@ def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = Non
                     flags.append(cf)
             if data.get("summary"):
                 summaries.append(str(data["summary"]))
-        summary = " ".join(summaries) or "No summary returned."
-        prov_name, model, privacy = used.name, used.model, used.privacy_note
+        if failed and len(failed) == len(clauses):
+            warnings.append("The AI couldn't analyze this contract, so the results below come from the "
+                            "keyword safety rules only. Please try again in a few minutes.")
+        elif failed:
+            warnings.append(f"The AI couldn't analyze {len(failed)} of {len(clauses)} clauses "
+                            f"({', '.join(failed[:8])}{'…' if len(failed) > 8 else ''}). "
+                            "Those were checked by the keyword safety rules only.")
+        summary = " ".join(summaries) or "The AI did not return an overview for this contract."
+        p0 = used or providers[0]
+        prov_name, model, privacy = p0.name, p0.model, p0.privacy_note
 
     # Verify every quote against the clause it claims to come from.
     by_id = {c.id: c for c in clauses}
@@ -189,6 +203,7 @@ def analyze(text: str, role: str = "tenant", extra_terms: list[str] | None = Non
             "quote": _sentence_with(by_id[h["clause_id"]].text, h["match"]),
             "explanation": f"Safety rule matched: {CATEGORIES[h['category']].lower()}.",
             "suggestion": "", "source": "rules", "verified": True,
+            "ai_failed": h["clause_id"] in failed,
         })
         covered_clauses.add(h["clause_id"])
 

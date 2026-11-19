@@ -8,12 +8,16 @@ lets tests run offline.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
 from dataclasses import dataclass
 
 import requests
+
+
+log = logging.getLogger("copilot.llm")
 
 
 class ProviderError(Exception):
@@ -28,7 +32,15 @@ class Provider:
     model: str
     privacy_note: str
 
-    def chat(self, system: str, user: str, timeout: int = 120, retries: int = 2) -> str:
+    def _extras(self) -> dict:
+        """Reasoning models (gpt-oss, qwen3...) think before answering. Keep that short so the
+        token budget goes to the answer, not the thinking."""
+        m = self.model.lower()
+        if self.name in ("cloudflare", "groq") and ("gpt-oss" in m or "qwen3" in m):
+            return {"reasoning_effort": os.environ.get("REASONING_EFFORT", "low")}
+        return {}
+
+    def chat(self, system: str, user: str, timeout: int = 180, retries: int = 2) -> str:
         url = self.base_url.rstrip("/") + "/chat/completions"
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -36,7 +48,11 @@ class Provider:
         body = {
             "model": self.model,
             "temperature": 0,
+            # Cloudflare's default is only 256 tokens: a reasoning model spends all of it thinking
+            # and returns an empty answer. Always set a real budget.
+            "max_tokens": int(os.environ.get("MAX_OUTPUT_TOKENS", "8000")),
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            **self._extras(),
         }
         last = ""
         for attempt in range(retries + 1):
@@ -50,13 +66,35 @@ class Provider:
                 last = "rate limited (429)"
                 time.sleep(min(int(r.headers.get("retry-after", 0) or 0), 20) or 3 * (attempt + 1))
                 continue
+            if r.status_code == 400 and "reasoning_effort" in body:
+                body.pop("reasoning_effort")  # provider doesn't accept the option: retry without it
+                continue
             if r.status_code >= 400:
                 raise ProviderError(f"{self.name}: HTTP {r.status_code}: {r.text[:300]}")
             try:
-                return r.json()["choices"][0]["message"]["content"] or ""
+                choice = r.json()["choices"][0]
             except (KeyError, IndexError, ValueError) as e:
                 raise ProviderError(f"{self.name}: unexpected response: {e}")
+            content = _text_of(choice.get("message", {}).get("content"))
+            finish = choice.get("finish_reason")
+            # Diagnostics only: sizes and status, never the text (contracts must not end up in logs).
+            log.info("%s %s: finish=%s, answer_chars=%d", self.name, self.model, finish, len(content))
+            if not content.strip():
+                if finish == "length":
+                    raise ProviderError(f"{self.name}: the answer was cut off before it started "
+                                        "(raise MAX_OUTPUT_TOKENS or lower REASONING_EFFORT)")
+                raise ProviderError(f"{self.name}: empty answer (finish_reason={finish})")
+            return content
         raise ProviderError(f"{self.name}: {last}")
+
+
+def _text_of(content) -> str:
+    """content can be a string, None, or a list of parts depending on the provider."""
+    if content is None:
+        return ""
+    if isinstance(content, list):
+        return "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+    return str(content)
 
 
 DEMO = "demo"

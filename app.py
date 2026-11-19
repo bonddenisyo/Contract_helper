@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from copilot.parsing import extract_text
 from copilot.store import connect, decision_stats, recent, record_decision, reviews_today, save_review
 from copilot.taxonomy import CATEGORIES, ROLES
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+
 st.set_page_config(page_title="Contract Copilot", page_icon="📄", layout="wide")
 
 SAMPLES = {json.loads(p.read_text())["name"]: json.loads(p.read_text())
@@ -36,6 +39,12 @@ RISK_BADGE = {"high": "High risk", "medium": "Medium risk", "low": "Low risk"}
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")        # set it to hide the audit log from visitors
 SESSION_LIMIT = int(os.environ.get("MAX_REVIEWS_PER_SESSION", "5"))
 DAILY_LIMIT = int(os.environ.get("DAILY_REVIEW_LIMIT", "100"))  # protects your free-tier AI quota
+
+
+@st.cache_data(show_spinner=False, max_entries=20)
+def read_file(name: str, data: bytes) -> str:
+    """Read an uploaded file once. Without this, every click re-parses the PDF, which is slow on a small server."""
+    return extract_text(name, data)
 
 
 @st.cache_resource
@@ -90,67 +99,86 @@ if page == "Audit log":
     st.stop()
 
 # ---------- Step 1: input ----------
+# Everything the user fills in sits inside one form, so nothing reloads until they press "Review contract".
 st.title("Review a contract")
-c1, c2 = st.columns([3, 2])
-with c1:
-    source = st.radio("Contract", ["Upload a file", "Paste text", "Try an example"], horizontal=True)
-    doc_name, text = "", ""
-    if source == "Try an example":
-        doc_name = st.selectbox(
-            "Example contract", list(SAMPLES),
-            help="Made-up contracts with typical risky clauses, so you can see how the review works "
-                 "without uploading your own. They are also the test set used to measure the tool's accuracy.")
-        st.caption("A made-up contract for trying the tool. No real people or companies.")
-        with st.expander("Read the example contract"):
-            st.text(SAMPLES[doc_name]["text"])
-        text = SAMPLES[doc_name]["text"]
-    elif source == "Upload a file":
-        up = st.file_uploader("PDF, DOCX or TXT", type=["pdf", "docx", "txt"])
-        if up:
-            try:
-                doc_name, text = up.name, extract_text(up.name, up.getvalue())
-            except ValueError as e:
-                st.error(str(e))
-    else:
-        text = st.text_area("Paste the contract", height=200)
-        doc_name = "Pasted contract"
-with c2:
-    default_role = SAMPLES[doc_name]["role"] if source == "Try an example" else "tenant"
-    role = st.selectbox("I am…", list(ROLES), index=list(ROLES).index(default_role), format_func=lambda r: ROLES[r])
-    st.info(
-        "**Your contract stays private.**\n\n"
-        "- We remove names, addresses, emails, phone numbers and bank or ID numbers before the text is analyzed.\n"
-        "- Your contract is never saved. It's only kept while this page is open, and it's gone when you close it.\n"
-        "- We keep only anonymous statistics, like how many risky clauses were found.",
-        icon="🔒")
-
+source = st.radio("Contract", ["Upload a file", "Paste text", "Try an example"], horizontal=True)
 is_sample = source == "Try an example"
-consent = True
-if providers and not is_sample:
-    consent = st.checkbox(
-        f"I understand this is not legal advice, and that the contract, with personal details removed, "
-        f"is sent to an AI service ({providers[0].name}) for analysis.")
+sample_name = ""
+if is_sample:
+    sample_name = st.selectbox(
+        "Example contract", list(SAMPLES),
+        help="Made-up contracts with typical risky clauses, so you can see how the review works "
+             "without uploading your own. They are also the test set used to measure the tool's accuracy.")
+    st.caption("A made-up contract for trying the tool. No real people or companies.")
+    with st.expander("Read the example contract"):
+        st.text(SAMPLES[sample_name]["text"])
 
 limit_msg = ""
 if providers and ss.reviews_run >= SESSION_LIMIT:
     limit_msg = f"You've reached the limit of {SESSION_LIMIT} reviews per visit. Reload the page later to continue."
 elif providers and reviews_today(con) >= DAILY_LIMIT:
-    limit_msg = "The free daily AI capacity is used up. Please come back tomorrow, or try a sample in the meantime."
+    limit_msg = "The free daily AI capacity is used up. Please come back tomorrow, or try an example in the meantime."
 if limit_msg:
     st.warning(limit_msg)
 
-if st.button("Review contract", type="primary", disabled=not text.strip() or not consent or bool(limit_msg)):
-    ss.reviews_run += 1
-    with st.spinner("Reading the contract…"):
+with st.form("review_form", border=False):
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        up, pasted = None, ""
+        if source == "Upload a file":
+            up = st.file_uploader("PDF, DOCX or TXT", type=["pdf", "docx", "txt"])
+        elif source == "Paste text":
+            pasted = st.text_area("Paste the contract", height=200)
+    with c2:
+        default_role = SAMPLES[sample_name]["role"] if is_sample else "tenant"
+        role = st.selectbox("I am…", list(ROLES), index=list(ROLES).index(default_role), format_func=lambda r: ROLES[r])
+        st.info(
+            "**Your contract stays private.**\n\n"
+            "- We remove names, addresses, emails, phone numbers and bank or ID numbers before the text is analyzed.\n"
+            "- Your contract is never saved. It's only kept while this page is open, and it's gone when you close it.\n"
+            "- We keep only anonymous statistics, like how many risky clauses were found.",
+            icon="🔒")
+    consent = True
+    if providers and not is_sample:
+        consent = st.checkbox(
+            f"I understand this is not legal advice, and that the contract, with personal details removed, "
+            f"is sent to an AI service ({providers[0].name}) for analysis.")
+    submitted = st.form_submit_button("Review contract", type="primary", disabled=bool(limit_msg))
+
+if submitted:
+    doc_name, text, problem = "", "", ""
+    if is_sample:
+        doc_name, text = sample_name, SAMPLES[sample_name]["text"]
+    elif up is not None:
         try:
-            review = analyze(text, role=role)
-        except (ProviderError, ValueError) as e:
-            st.error(f"Review failed: {e}")
-            st.stop()
-    ss.review, ss.decisions, ss.doc_name, ss.role = review, {}, doc_name, role
-    # File names can contain people's names, so the audit log only keeps the kind of document.
-    log_name = f"Sample: {doc_name}" if is_sample else ("Uploaded " + Path(doc_name).suffix if source == "Upload a file" else "Pasted text")
-    ss.review_id = save_review(con, review, log_name, role)
+            with st.spinner("Reading the file…"):
+                doc_name, text = up.name, read_file(up.name, up.getvalue())
+        except ValueError as e:
+            problem = str(e)
+        except Exception:
+            problem = "Couldn't read this file. If it's a PDF, try saving it again as PDF or DOCX, or paste the text."
+    else:
+        doc_name, text = "Pasted contract", pasted
+
+    if problem:
+        st.error(problem)
+    elif not text.strip():
+        st.error("Upload a contract or paste its text first." if not is_sample else "This example is empty.")
+    elif not consent:
+        st.error("Please tick the box confirming you understand this is not legal advice, then press Review again.")
+    else:
+        ss.reviews_run += 1
+        with st.spinner("Reviewing the contract… this can take up to a minute."):
+            try:
+                review = analyze(text, role=role)
+            except (ProviderError, ValueError) as e:
+                st.error(f"Review failed: {e}")
+                st.stop()
+        ss.review, ss.decisions, ss.doc_name, ss.role = review, {}, doc_name, role
+        # File names can contain people's names, so the audit log only keeps the kind of document.
+        log_name = (f"Sample: {doc_name}" if is_sample
+                    else ("Uploaded " + Path(doc_name).suffix if source == "Upload a file" else "Pasted text"))
+        ss.review_id = save_review(con, review, log_name, role)
 
 review = ss.review
 if not review:

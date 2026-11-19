@@ -17,6 +17,10 @@ LOW_CONFIDENCE = 0.6
 def route(flag: dict) -> tuple[str, str]:
     cat, risk, conf = flag["category"], flag["risk"], flag.get("confidence")
 
+    if flag.get("source") == "rules" and flag.get("ai_failed") and cat in HIGH_STAKES:
+        return "lawyer", "The AI couldn't analyze this clause, and a safety rule found a high-stakes term."
+    if flag.get("source") == "rules" and flag.get("ai_failed"):
+        return "review", "The AI couldn't analyze this clause, but a safety rule matched. Please check it yourself."
     if flag.get("source") == "rules":
         return "review", "A safety rule matched, but the AI did not flag this clause. Please check it yourself."
     if not flag.get("verified", True):
